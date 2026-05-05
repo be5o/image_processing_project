@@ -13,16 +13,28 @@ def apply_conv_wrapper(img, kernel):
     return np.clip(convolve2d(img, kernel), 0, 255).astype(np.uint8)
 
 def apply_sobel(img):
-    gx = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
-    gy = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
-    mag = np.sqrt(convolve2d(img, gx)**2 + convolve2d(img, gy)**2)
-    return np.clip(mag, 0, 255).astype(np.uint8)
+    gx_kernel = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
+    gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
+    gx = convolve2d(img, gx_kernel)
+    gy = convolve2d(img, gy_kernel)
+    mag = np.sqrt(gx**2 + gy**2)
+    return {
+        "gx":        np.clip(np.abs(gx), 0, 255).astype(np.uint8),
+        "gy":        np.clip(np.abs(gy), 0, 255).astype(np.uint8),
+        "magnitude": np.clip(mag,       0, 255).astype(np.uint8),
+    }
 
 def apply_prewitt(img):
-    gx = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float32)
-    gy = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float32)
-    mag = np.sqrt(convolve2d(img, gx)**2 + convolve2d(img, gy)**2)
-    return np.clip(mag, 0, 255).astype(np.uint8)
+    gx_kernel = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float32)
+    gy_kernel = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float32)
+    gx = convolve2d(img, gx_kernel)
+    gy = convolve2d(img, gy_kernel)
+    mag = np.sqrt(gx**2 + gy**2)
+    return {
+        "gx":        np.clip(np.abs(gx), 0, 255).astype(np.uint8),
+        "gy":        np.clip(np.abs(gy), 0, 255).astype(np.uint8),
+        "magnitude": np.clip(mag,       0, 255).astype(np.uint8),
+    }
 
 def apply_median(img: np.ndarray, size: int) -> np.ndarray:
     if size % 2 == 0: raise ValueError("Kernel size must be odd")

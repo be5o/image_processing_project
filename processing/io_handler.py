@@ -10,12 +10,21 @@ def load_image(filepath: str) -> Tuple[np.ndarray, Dict[str, Any]]:
 
     if ext in ['.dcm', '.dicom']:
         ds = pydicom.dcmread(filepath)
-        img = ds.pixel_array.astype(np.float32)
-        if img.max() > img.min():
-            img = (img - img.min()) / (img.max() - img.min()) * 255.0
-        img = img.astype(np.uint8)
+        pixel = ds.pixel_array.astype(np.float32)
+        # Handle multi-frame DICOM: take the middle frame so a single 2D array is shown
+        if pixel.ndim == 3:
+            mid = pixel.shape[0] // 2
+            pixel = pixel[mid]
+        elif pixel.ndim > 3:
+            # Flatten extra leading dimensions down to 2D
+            pixel = pixel.reshape(-1, pixel.shape[-2], pixel.shape[-1])[pixel.shape[0] // 2]
+        # Normalise to 0-255
+        if pixel.max() > pixel.min():
+            pixel = (pixel - pixel.min()) / (pixel.max() - pixel.min()) * 255.0
+        img = pixel.astype(np.uint8)
+        # ds.Rows = number of rows = height, ds.Columns = number of columns = width
         metadata.update({
-            "Width": ds.Rows, "Height": ds.Columns,
+            "Width": ds.Columns, "Height": ds.Rows,
             "BitDepth": getattr(ds, 'BitsAllocated', 8),
             "PatientName": str(getattr(ds, 'PatientName', 'N/A')),
             "Modality": str(getattr(ds, 'Modality', 'N/A')),

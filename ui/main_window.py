@@ -1,8 +1,10 @@
 import os
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QTabWidget, QPushButton, QLabel, QSpinBox, QDoubleSpinBox,
-                             QComboBox, QFileDialog, QMessageBox, QGroupBox, QFormLayout, QSlider)
+                             QComboBox, QFileDialog, QMessageBox, QGroupBox, QFormLayout, QSlider,
+                             QMenuBar)
 from PyQt6.QtCore import Qt, QThread
+from PyQt6.QtGui import QAction
 from core.image_state import ImageState
 from core.pipline_manager import PipelineManager
 from ui.image_viewer import ImageViewer
@@ -12,6 +14,8 @@ from utils.validators import validate_kernel_size, validate_sigma
 from processing import io_handler, interpolation, spatial_filters, histogram_eq
 
 class MainWindow(QMainWindow):
+    # Class-level list keeps every open window alive (prevents GC)
+    _instances: list = []
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Clinical Image Analysis Workbench")
@@ -23,7 +27,10 @@ class MainWindow(QMainWindow):
         self.pipeline.error_occurred.connect(self.show_error)
         self._thread = None
         self._worker = None
+        # Register this instance so Python keeps it alive
+        MainWindow._instances.append(self)
         self.init_ui()
+        self._build_menu()
 
     def init_ui(self):
         central = QWidget()
@@ -76,10 +83,14 @@ class MainWindow(QMainWindow):
         self.apply_filter_btn = QPushButton("Apply Filter")
         filter_layout.addRow("Filter Type:", self.filter_type)
         filter_layout.addRow("Kernel Size (Odd):", self.kernel_size)
-        filter_layout.addRow("Gaussian σ:", self.gauss_sigma)
+        # Keep references to the sigma label/widget so we can show/hide them
+        self._sigma_label = QLabel("Gaussian \u03c3:")
+        filter_layout.addRow(self._sigma_label, self.gauss_sigma)
         filter_layout.addRow(self.apply_filter_btn)
         filter_group.setLayout(filter_layout)
         control_layout.addWidget(filter_group)
+        # Show sigma only for Gaussian; hide for all other filters
+        self._update_sigma_visibility(self.filter_type.currentText())
 
         # Local HE
         he_group = QGroupBox("Local Histogram Eq")
@@ -108,6 +119,9 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(control_panel)
 
         # Viewer & Tabs
+        self.viewer_tabs = QTabWidget()
+
+        # Main image viewer tab
         viewer_tab = QWidget()
         v_layout = QVBoxLayout(viewer_tab)
         self.viewer = ImageViewer()
@@ -115,20 +129,80 @@ class MainWindow(QMainWindow):
         self.metadata_label = QLabel("Metadata will appear here.")
         self.metadata_label.setWordWrap(True)
         v_layout.addWidget(self.metadata_label)
+        self.viewer_tabs.addTab(viewer_tab, "Image Viewer")
+
+        # Edge output tabs (Gx, Gy, Magnitude) — created once, shown after edge filter
+        self._edge_gx_viewer   = ImageViewer()
+        self._edge_gy_viewer   = ImageViewer()
+        self._edge_mag_viewer  = ImageViewer()
+        self._tab_gx  = QWidget()
+        self._tab_gy  = QWidget()
+        self._tab_mag = QWidget()
+        QVBoxLayout(self._tab_gx).addWidget(self._edge_gx_viewer)
+        QVBoxLayout(self._tab_gy).addWidget(self._edge_gy_viewer)
+        QVBoxLayout(self._tab_mag).addWidget(self._edge_mag_viewer)
+        # Edge tabs are hidden until an edge filter is applied
+        self._edge_tabs_visible = False
+
         tabs = QTabWidget()
-        tabs.addTab(viewer_tab, "Image Viewer")
+        tabs.addTab(self.viewer_tabs, "Processing")
         main_layout.addWidget(tabs)
 
         self.connect_signals()
+
+    def _build_menu(self):
+        """Add a File menu with a New Window action."""
+        menu_bar = self.menuBar()
+        file_menu = menu_bar.addMenu("File")
+
+        new_win_action = QAction("New Window", self)
+        new_win_action.setShortcut("Ctrl+N")
+        new_win_action.setStatusTip("Open a new independent image processing window")
+        new_win_action.triggered.connect(MainWindow.open_new_window)
+        file_menu.addAction(new_win_action)
+
+        file_menu.addSeparator()
+
+        close_action = QAction("Close Window", self)
+        close_action.setShortcut("Ctrl+W")
+        close_action.triggered.connect(self.close)
+        file_menu.addAction(close_action)
+
+    @staticmethod
+    def open_new_window():
+        """Spawn a completely independent MainWindow instance."""
+        w = MainWindow()
+        w.show()
+        # _instances already updated inside __init__
+
+    def closeEvent(self, event):
+        """Remove this window from the global list when it is closed."""
+        try:
+            MainWindow._instances.remove(self)
+        except ValueError:
+            pass
+        super().closeEvent(event)
 
     def connect_signals(self):
         self.btn_load.clicked.connect(self.load_image)
         self.btn_save.clicked.connect(self.save_image)
         self.zoom_slider.valueChanged.connect(self.apply_zoom)
+        # Task 4: changing interpolation method immediately redraws at current scale
+        self.zoom_method.currentIndexChanged.connect(self.apply_zoom)
         self.apply_filter_btn.clicked.connect(self.apply_filter)
         self.apply_he_btn.clicked.connect(self.apply_local_he)
         self.btn_undo.clicked.connect(self.pipeline.undo)
         self.btn_reset.clicked.connect(self.pipeline.reset)
+        # Task 3: show/hide Gaussian sigma field based on selected filter
+        self.filter_type.currentIndexChanged.connect(
+            lambda: self._update_sigma_visibility(self.filter_type.currentText())
+        )
+
+    def _update_sigma_visibility(self, filter_name: str):
+        """Show the Gaussian sigma control only when Gaussian filter is selected."""
+        is_gaussian = (filter_name == "Gaussian")
+        self._sigma_label.setVisible(is_gaussian)
+        self.gauss_sigma.setVisible(is_gaussian)
 
     def update_viewer(self, img):
         scale = self.zoom_slider.value() / 100.0
@@ -171,7 +245,36 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_op_done(self, result):
+        # Task 2: Sobel/Prewitt return a dict {gx, gy, magnitude}
+        if isinstance(result, dict):
+            self._on_edge_done(result)
+            return
         self.pipeline.apply_result(result)
+        self._set_busy(False)
+
+    def _on_edge_done(self, result: dict):
+        """Handle edge-filter dict result: show Gx/Gy/Magnitude tabs and store magnitude."""
+        gx  = result["gx"]
+        gy  = result["gy"]
+        mag = result["magnitude"]
+
+        # Display each output in its dedicated viewer
+        self._edge_gx_viewer.display_image(gx)
+        self._edge_gy_viewer.display_image(gy)
+        self._edge_mag_viewer.display_image(mag)
+
+        # Add edge tabs the first time an edge filter runs
+        if not self._edge_tabs_visible:
+            self.viewer_tabs.addTab(self._tab_gx,  "Gx (Horizontal)")
+            self.viewer_tabs.addTab(self._tab_gy,  "Gy (Vertical)")
+            self.viewer_tabs.addTab(self._tab_mag, "Magnitude")
+            self._edge_tabs_visible = True
+
+        # Switch to the Magnitude tab automatically
+        self.viewer_tabs.setCurrentWidget(self._tab_mag)
+
+        # Store magnitude in pipeline so further operations keep working
+        self.pipeline.apply_result(mag)
         self._set_busy(False)
 
     def _on_op_error(self, msg):

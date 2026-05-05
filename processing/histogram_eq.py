@@ -13,5 +13,8 @@ def local_histogram_equalization(img: np.ndarray, block_size: int) -> np.ndarray
             nonzero = cdf[np.nonzero(cdf)]
             if len(nonzero) == 0: continue
             cdf_min = nonzero[0]
-            out[i, j] = ((cdf[img[i, j]] - cdf_min) / (block.size - cdf_min)) * 255.0
+            # Use padded center pixel (equivalent to img[i,j] but clearer for the local block)
+            center_val = int(padded[i + pad, j + pad])
+            # Add epsilon to denominator to avoid division-by-zero when cdf_min ~ block.size
+            out[i, j] = ((cdf[center_val] - cdf_min) / (block.size - cdf_min + 1e-5)) * 255.0
     return np.clip(out, 0, 255).astype(np.uint8)
