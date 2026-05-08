@@ -147,7 +147,7 @@ class TestExtensionMismatch:
         # PIL often opens PNG-content regardless of extension, so we allow
         # both a successful load (returning a valid array) and an exception.
         try:
-            img, meta = load_image(path)
+            img, meta, _ds = load_image(path)
             assert img.ndim == 2
             assert img.dtype == np.uint8
         except Exception:
@@ -165,7 +165,7 @@ class TestValidFile:
         arr = np.random.randint(0, 256, (32, 32), dtype=np.uint8)
         PILImage.fromarray(arr, mode="L").save(buf, format="PNG")
         path = write_tmp(tmp_path, "valid.png", buf.getvalue())
-        img, meta = load_image(path)
+        img, meta, _ds = load_image(path)
         assert img.shape == (32, 32)
         assert img.dtype == np.uint8
         assert meta["Width"] == 32
@@ -178,7 +178,7 @@ class TestValidFile:
         arr = np.random.randint(0, 256, (32, 32), dtype=np.uint8)
         PILImage.fromarray(arr, mode="L").save(buf, format="JPEG")
         path = write_tmp(tmp_path, "valid.jpg", buf.getvalue())
-        img, meta = load_image(path)
+        img, meta, _ds = load_image(path)
         assert img.ndim == 2
         assert img.dtype == np.uint8
 
@@ -189,7 +189,7 @@ class TestValidFile:
         arr = np.random.randint(0, 256, (16, 16), dtype=np.uint8)
         PILImage.fromarray(arr, mode="L").save(buf, format="BMP")
         path = write_tmp(tmp_path, "valid.bmp", buf.getvalue())
-        img, meta = load_image(path)
+        img, meta, _ds = load_image(path)
         assert img.ndim == 2
         assert img.dtype == np.uint8
 
