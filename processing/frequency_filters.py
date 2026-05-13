@@ -21,13 +21,13 @@ def compute_fft(img: np.ndarray):
     return fshift, spectrum
 
 
-def build_notch_filter(shape: tuple, notch_points: list,
-                       radius: float, filter_type: str,
-                       order: int = 2) -> np.ndarray:
+def build_notch_filter(shape: tuple, notch_points: list,      # must be (rows, cols)
+                       radius: float, filter_type: str,      # must be 'Ideal', 'Butterworth', or 'Gaussian'
+                       order: int = 2) -> np.ndarray:       # order is only used for Butterworth
     """Build a notch-reject filter mask H in the shifted frequency domain.
 
     Each click coordinate (u, v) and its conjugate-symmetric counterpart
-    (rows-u, cols-v) are both suppressed so that IFFT(H * F) is real-valued.
+    (rows-u, cols-v) are both suppressed so that IFFT(H * F) is real-valued.  
 
     Parameters
     ----------
@@ -42,19 +42,19 @@ def build_notch_filter(shape: tuple, notch_points: list,
     H : float64 ndarray in [0, 1]  (1 = pass, 0 = reject)
     """
     rows, cols = shape
-    H = np.ones((rows, cols), dtype=np.float64)
+    H = np.ones((rows, cols), dtype=np.float64)  #start will all mask of ones means all pass until notch defined
 
     # Vectorised coordinate grids
-    y_grid = np.arange(rows, dtype=np.float64).reshape(-1, 1)
-    x_grid = np.arange(cols, dtype=np.float64).reshape(1, -1)
+    y_grid = np.arange(rows, dtype=np.float64).reshape(-1, 1)   # column vector of row indices intsead of nested loop to compute distance from each notch point to every pixel in the frequency domain, we can use broadcasting with these grids
+    x_grid = np.arange(cols, dtype=np.float64).reshape(1, -1)   # row vector of column indices
 
     for (u, v) in notch_points:
         # Conjugate-symmetric partner (modular wrap handles centre point)
-        su = int((rows - u) % rows)
+        su = int((rows - u) % rows)     #get ooposite displacemnet in and % for special case 0 
         sv = int((cols - v) % cols)
 
         for (nu, nv) in [(int(u), int(v)), (su, sv)]:
-            d = np.sqrt((y_grid - nu) ** 2 + (x_grid - nv) ** 2)
+            d = np.sqrt((y_grid - nu) ** 2 + (x_grid - nv) ** 2)    #distance from each pixel to the notch center (nu, nv)
 
             if filter_type == 'Ideal':
                 H[d <= radius] = 0.0
@@ -80,9 +80,9 @@ def apply_notch_filter(img: np.ndarray, notch_points: list,
     if not notch_points:
         return img.copy()
 
-    fshift, _ = compute_fft(img)
-    H = build_notch_filter(img.shape, notch_points, radius, filter_type, order)
-    filtered = fshift * H
-    f_ishift = np.fft.ifftshift(filtered)
-    result = np.real(np.fft.ifft2(f_ishift))
-    return np.clip(result, 0, 255).astype(np.uint8)
+    fshift, _ = compute_fft(img)                                                 #get the shifted FFT of the image, ignore the display spectrum here)
+    H = build_notch_filter(img.shape, notch_points, radius, filter_type, order)  #create the notch filter mask
+    filtered = fshift * H                                                        #apply the notch filter to the shifted FFT
+    f_ishift = np.fft.ifftshift(filtered)                                        #inverse shift the filtered spectrum to original order (DC at origin) for inverse FFT
+    result = np.real(np.fft.ifft2(f_ishift))                                     #compute the inverse FFT and take the real part (should be real-valued due to symmetric notches)
+    return np.clip(result, 0, 255).astype(np.uint8) 

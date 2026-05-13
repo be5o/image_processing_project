@@ -25,17 +25,17 @@ class FftViewer(QWidget):
     notch_clicked(row, col)  – emitted with image-space coordinates on every click.
     """
 
-    notch_clicked = pyqtSignal(int, int)
+    notch_clicked = pyqtSignal(int, int)  # (row, col) in image/pixmap coordinates of the click
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._base_pixmap: QPixmap | None = None
+        self._base_pixmap: QPixmap | None = None # the original spectrum image without any notch markers
         self._img_h = 0
         self._img_w = 0
-        self._notch_points: list[tuple[int, int]] = []
+        self._notch_points: list[tuple[int, int]] = []    # list of (row, col) points where the user clicked to place notches
 
         self.label = QLabel()
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)     # the pixmap is smaller than the label, so it will be centered and we can compute click offsets
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)

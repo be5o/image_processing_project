@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+import numpy as np
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QPushButton, QLabel, QSpinBox, QDoubleSpinBox, QComboBox,
@@ -26,7 +28,7 @@ from core.pipline_manager import PipelineManager
 from ui.image_viewer import ImageViewer
 from ui.fft_viewer import FftViewer
 from ui.pipeline_panel import PipelinePanel
-from ui.dialogs import ErrorDialog, RoiStatsDialog
+from ui.dialogs import ErrorDialog, RoiStatsDialog, HistogramWidget
 from utils.worker import Worker
 from utils.validators import validate_kernel_size, validate_sigma
 from processing import io_handler, interpolation, spatial_filters, histogram_eq
@@ -128,6 +130,22 @@ class MainWindow(QMainWindow):
         ))
         fft_layout.addWidget(self.fft_viewer)
         self._fft_tab_visible = False
+
+        # ── ROI Histogram tab (lazy — added on first "Show Statistics") ───────
+        self._hist_widget = HistogramWidget(np.zeros(256, dtype=np.int64))
+        self._roi_stats_label = QLabel("Draw an ROI and click 'Show Statistics' to compute.")
+        self._roi_stats_label.setStyleSheet(
+            "font-family: monospace; font-size: 11px; "
+            "color: #ccc; padding: 4px;"
+        )
+        self._roi_stats_label.setWordWrap(True)
+        self._hist_tab = QWidget()
+        hist_layout = QVBoxLayout(self._hist_tab)
+        hist_layout.setContentsMargins(8, 8, 8, 8)
+        hist_layout.setSpacing(6)
+        hist_layout.addWidget(self._roi_stats_label)
+        hist_layout.addWidget(self._hist_widget, stretch=1)
+        self._hist_tab_visible = False
 
         outer_tabs = QTabWidget()
         outer_tabs.addTab(self.viewer_tabs, "Processing")
@@ -873,8 +891,26 @@ class MainWindow(QMainWindow):
                              "The selected region is too small or out of bounds.",
                              critical=False)
             return
-        dlg = RoiStatsDialog(stats, self)
-        dlg.exec()
+
+        # ── Update histogram tab (no popup) ──────────────────────────────────
+        self._hist_widget.update_histogram(stats['histogram'])
+
+        h, w = stats['roi_shape']
+        info = (
+            f"⬜ ROI: {w}×{h} px  │  "
+            f"Pixels: {stats['pixel_count']:,}  │  "
+            f"Mean: {stats['mean']:.2f}  │  "
+            f"Std: {stats['std']:.2f}  │  "
+            f"Variance: {stats['variance']:.2f}  │  "
+            f"Min–Max: 0–255"
+        )
+        self._roi_stats_label.setText(info)
+
+        # Show / switch to the histogram tab
+        if not self._hist_tab_visible:
+            self.viewer_tabs.addTab(self._hist_tab, "ROI Histogram")
+            self._hist_tab_visible = True
+        self.viewer_tabs.setCurrentWidget(self._hist_tab)
 
     # ═══════════════════════════════════════════════════════════════════════
     # Bonus handlers — Morphological engine
